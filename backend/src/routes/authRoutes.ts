@@ -2,81 +2,91 @@ import  { Router } from "express";
 import prisma from "../config/prisma";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";    
+dotenv.config();
 
 const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET! ;
 
+import axios from "axios"; // 👈 Add this at the top with other imports
 
+// GitHub OAuth Route
+router.post("/auth/github", async (req, res) => {
+  const { code } = req.body;
 
+  if (!code) {
+    return res.status(400).json({ error: "Authorization code is required" });
+  }
 
-
-router.post("/signup", async (req, res) => {
   try {
-    const  email = req.body.email;
-    const password = req.body.password;
-    const name = req.body.name;
+    // Step 1: Exchange code for access token
+    const tokenResponse = await axios.post(
+      "https://github.com/login/oauth/access_token",
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
 
-    if(!email || !password || !name) {
-      return res.status(400).json({ error: "All fields are requried" });
+    const accessToken = tokenResponse.data.access_token;
+    if (!accessToken) {
+      return res.status(400).json({ error: "Failed to get access token" });
     }
 
-      const existing = await prisma.user.findUnique({where: { email }});
-      
-        if (existing) {
-            return res.status(409).json({ error: `User with this email address ${email} already exists` });
-        }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        name,
+    // Step 2: Get user info from GitHub
+    const userResponse = await axios.get("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
       },
     });
 
-    res.status(201).json({ message: "User registered successfully", userId : user.id });
-  } catch (error) {
-      console.error("Signup Error : : ", error);
-    res.status(500).json({ error: "Failed to register user" });
-  }
-});
+    const { id, login, email, name } = userResponse.data;
 
-
-router.post("/login", async (req, res) => {
-  try {
-    const email = req.body.email;
-    const password = req.body.password;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+    // Step 3: Fallback to get email if null
+    let userEmail = email;
+    if (!userEmail) {
+      const emailsResponse = await axios.get("https://api.github.com/user/emails", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const primaryEmail = emailsResponse.data.find((emailObj: any) => emailObj.primary);
+      userEmail = primaryEmail?.email;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+    if (!userEmail) {
+      return res.status(400).json({ error: "Unable to fetch email from GitHub" });
+    }
+
+    // Step 4: Find or create user in DB
+    let user = await prisma.user.findUnique({ where: { email: userEmail } });
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      user = await prisma.user.create({
+        data: {
+          email: userEmail,
+          name: name || login,
+          // password: null, // no password for GitHub users
+        },
+      });
     }
 
-    const match = await bcrypt.compare(password, user.password);
-
-    if (!match) {
-      return res.status(401).json({ error: "Invalid password" });
-    }
-
-   
+    // Step 5: Generate JWT
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: "1h",
     });
 
-    res.json({ message: "Login successful", token });
+    res.json({ message: "GitHub login successful", token });
   } catch (error) {
-    console.error("Login Error : : ", error);
-    res.status(500).json({ error: "Failed to login" });
+    console.error("GitHub Auth Error:", error);
+    res.status(500).json({ error: "GitHub login failed" });
   }
 });
 

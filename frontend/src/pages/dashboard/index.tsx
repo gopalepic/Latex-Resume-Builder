@@ -41,7 +41,7 @@ export default function DashboardPage() {
         const token = localStorage.getItem("token");
 
         if (!token) {
-          // ❌ Not logged in either way
+         
           router.push("/login");
           return;
         }
