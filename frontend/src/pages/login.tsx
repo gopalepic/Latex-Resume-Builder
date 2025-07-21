@@ -1,27 +1,39 @@
-import { useState,useEffect } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 import { useRouter } from "next/router";
 import z from "zod";
-import { signIn , useSession} from "next-auth/react";
 
 export default function LoginPage() {
   const router = useRouter();
-
-  const { data: session, status } = useSession();
-
-  useEffect(() => {
-    if(status === "authenticated" && (session as any)?.provider === "github") {
-      router.push("/dashboard");
-    }},[status,session]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  // Handle GitHub OAuth callback - receive token from backend redirect
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const error = urlParams.get('error');
+    
+    if (token) {
+      localStorage.setItem("token", token);
+      router.push("/dashboard");
+    } else if (error) {
+      setError(`GitHub login failed: ${error}`);
+    }
+  }, []);
+
+  const handleGitHubLogin = () => {
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&redirect_uri=http://localhost:4000/api/auth/github/callback&scope=read:user user:email`;
+    window.location.href = githubAuthUrl;
+  };
+
   const loginSchema = z.object({
     email: z.string().min(1, "Email is required").email("Invalid email format"),
     password: z.string().min(6, "Password must be at least 6 characters long"),
   });
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -55,6 +67,7 @@ export default function LoginPage() {
       }
     }
   };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="w-full max-w-md bg-white p-8 rounded shadow">
@@ -92,7 +105,7 @@ export default function LoginPage() {
           {/* ✅ GitHub OAuth Button */}
           <button
             type="button"
-            onClick={() => signIn("github")}
+            onClick={handleGitHubLogin}
             className="w-full bg-gray-900 text-white p-2 rounded hover:bg-black"
           >
             Sign in with GitHub 🐱

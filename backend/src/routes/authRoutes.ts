@@ -2,21 +2,100 @@ import  { Router } from "express";
 import prisma from "../config/prisma";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import axios from "axios";
 import dotenv from "dotenv";    
 dotenv.config();
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET! ;
+const JWT_SECRET = process.env.JWT_SECRET;
 
-import axios from "axios"; // 👈 Add this at the top with other imports
+if (!JWT_SECRET) {
+  console.error("JWT_SECRET is not set in environment variables");
+  process.exit(1);
+}
 
-// GitHub OAuth Route
-router.post("/auth/github", async (req, res) => {
-  const { code } = req.body;
+// Regular signup route
+router.post("/signup", async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    
+    if (existing) {
+      return res.status(409).json({ error: `User with this email address ${email} already exists` });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+        provider: "local", // Mark as local/email registration
+      },
+    });
+
+    res.status(201).json({ message: "User registered successfully", userId: user.id });
+  } catch (error) {
+    console.error("Signup Error:", error);
+    res.status(500).json({ error: "Failed to register user" });
+  }
+});
+
+// Regular login route
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (!user.password) {
+      return res.status(400).json({ error: "This account uses OAuth login. Please sign in with GitHub." });
+    }
+
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    res.json({ message: "Login successful", token });
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ error: "Failed to login" });
+  }
+});
+
+// GitHub OAuth callback route (handles GitHub's redirect)
+router.get("/github/callback", async (req, res) => {
+  const { code, error } = req.query;
+
+  if (error) {
+    return res.redirect(`http://localhost:3000/login?error=${error}`);
+  }
 
   if (!code) {
-    return res.status(400).json({ error: "Authorization code is required" });
+    return res.redirect("http://localhost:3000/login?error=no_code");
   }
 
   try {
@@ -37,7 +116,7 @@ router.post("/auth/github", async (req, res) => {
 
     const accessToken = tokenResponse.data.access_token;
     if (!accessToken) {
-      return res.status(400).json({ error: "Failed to get access token" });
+      return res.redirect("http://localhost:3000/login?error=failed_to_get_token");
     }
 
     // Step 2: Get user info from GitHub
@@ -62,7 +141,7 @@ router.post("/auth/github", async (req, res) => {
     }
 
     if (!userEmail) {
-      return res.status(400).json({ error: "Unable to fetch email from GitHub" });
+      return res.redirect("http://localhost:3000/login?error=no_email");
     }
 
     // Step 4: Find or create user in DB
@@ -73,7 +152,8 @@ router.post("/auth/github", async (req, res) => {
         data: {
           email: userEmail,
           name: name || login,
-          // password: null, // no password for GitHub users
+          provider: "github",
+          providerId: id.toString(),
         },
       });
     }
@@ -83,10 +163,11 @@ router.post("/auth/github", async (req, res) => {
       expiresIn: "1h",
     });
 
-    res.json({ message: "GitHub login successful", token });
+    // Redirect to frontend with token
+    res.redirect(`http://localhost:3000/login?token=${token}`);
   } catch (error) {
     console.error("GitHub Auth Error:", error);
-    res.status(500).json({ error: "GitHub login failed" });
+    res.redirect("http://localhost:3000/login?error=github_auth_failed");
   }
 });
 

@@ -9,12 +9,9 @@ const router = Router();
 
 async function getUserIdFromRequest(req: any): Promise<number | null> {
   try {
-    // If GitHub-authenticated user is injected by session middleware
-    if (req.user && req.user.email) {
-      const user = await prisma.user.findUnique({
-        where: { email: req.user.email },
-      });
-      return user?.id || null;
+    // If the user is already injected by the auth middleware
+    if (req.user && req.user.userId) {
+      return req.user.userId;
     }
 
     // Else: use Authorization Bearer token
@@ -23,10 +20,7 @@ async function getUserIdFromRequest(req: any): Promise<number | null> {
 
     const token = authHeader.split(" ")[1];
     const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
-    const user = await prisma.user.findUnique({
-      where: { email: decoded.email },
-    });
-    return user?.id || null;
+    return decoded.userId || null;
   } catch (err) {
     return null;
   }
@@ -34,7 +28,7 @@ async function getUserIdFromRequest(req: any): Promise<number | null> {
 
 router.get("/me", authenticate, async (req, res) => {
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -58,9 +52,9 @@ router.get("/me", authenticate, async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", authenticate, async (req, res) => {
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const { title, content } = req.body;
@@ -78,26 +72,25 @@ router.post("/", async (req, res) => {
     res.status(500).json({ error: "Failed to create resume" });
   }
 });
-router.get("/", async (req, res) => {
+router.get("/", authenticate, async (req, res) => {
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const resumes = await prisma.resume.findMany({
       where: { userId },
-      include: { user: true },
     });
 
-    res.json(resumes);
+    res.json({ resumes });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch resumes" });
   }
 });
 
 // ✅ PUT /api/resumes/:id – Update a resume
-router.put("/:id", async (req, res) => {
+router.put("/:id", authenticate, async (req, res) => {
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const resumeId = Number(req.params.id);
@@ -123,9 +116,9 @@ router.put("/:id", async (req, res) => {
 });
 
 // ✅ DELETE /api/resumes/:id – Delete a resume
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", authenticate, async (req, res) => {
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const resumeId = Number(req.params.id);

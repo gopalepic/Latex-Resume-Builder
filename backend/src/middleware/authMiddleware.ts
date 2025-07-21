@@ -1,8 +1,10 @@
 import { Request,Response,NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 
+dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET!;
+const JWT_SECRET = process.env.JWT_SECRET;
 
 interface JwtPayload {
     userId: number;
@@ -26,7 +28,12 @@ export const authenticate = (
     const token = authHeader.split(" ")[1];
 
     try{
-        const decoded = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
+        if (!JWT_SECRET || typeof JWT_SECRET !== "string") {
+            console.error("JWT_SECRET is not configured properly");
+            return res.status(500).json({ error: "JWT secret is not configured" });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
         req.user = { userId: decoded.userId };
 
@@ -34,6 +41,7 @@ export const authenticate = (
 
     }
     catch (error) {
+        console.error("JWT verification error:", error);
         return res.status(403).json({ error: "Invalid token" });
     }
 }

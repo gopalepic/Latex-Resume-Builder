@@ -2,43 +2,35 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
-import { signOut } from "next-auth/react";
-import { useSession } from "next-auth/react";
 
 export default function Header() {
   const router = useRouter();
 
-  const {data : session} = useSession();
-  const [userName , setUserName] = useState("");
-    const [open, setOpen] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
       const token = localStorage.getItem("token");
 
-      if(token){
-      try {
-        const res = await axios.get("http://localhost:4000/api/resumes/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        setUserName(res.data.name);
-      } catch (err) {
-        console.error("Failed to fetch user name:", err);
+      if (token) {
+        try {
+          const res = await axios.get("http://localhost:4000/api/resumes/me", {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          setUserName(res.data.name || "User");
+        } catch (err) {
+          console.error("Failed to fetch user name:", err);
+        }
       }
-    }
-    else if(session?.user?.name){
-      setUserName(session.user.name);
     };
-  };
     fetchUserInfo();
-  }, [session]);
-
+  }, []);
 
   const logout = async () => {
     localStorage.removeItem("token");
-    await signOut({callbackUrl: "/login"});
     router.push("/login");
   };
 

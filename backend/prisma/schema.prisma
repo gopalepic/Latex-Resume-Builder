@@ -16,28 +16,12 @@ datasource db {
 model User {
   id        Int       @id @default(autoincrement())
   name      String?
-  email     String?   @unique
-  password  String?   // For JWT users only
+  email     String    @unique
+  password  String?   // For JWT users only, null for OAuth users
+  provider  String?   // "github", "local", etc.
+  providerId String?  // GitHub user ID, etc.
   createdAt DateTime  @default(now())
   resumes   Resume[]
-  accounts  Account[] // For OAuth users (GitHub etc.)
-}
-
-model Account {
-  id                 Int     @id @default(autoincrement())
-  userId             Int
-  type               String
-  provider           String
-  providerAccountId  String
-  access_token       String? // Optional, depends on provider
-  token_type         String? // Optional
-  scope              String? // Optional
-  id_token           String? // Optional
-  session_state      String? // Optional
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@unique([provider, providerAccountId])
 }
 
 model Resume {
