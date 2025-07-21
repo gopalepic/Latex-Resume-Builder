@@ -1,95 +1,135 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/authMiddleware";
 import prisma from "../config/prisma";
+import jwt from "jsonwebtoken";
 
+import dotenv from "dotenv";
+dotenv.config();
 const router = Router();
 
-router.get('/me', authenticate, async (req, res) => {
-  try{
+async function getUserIdFromRequest(req: any): Promise<number | null> {
+  try {
+    // If the user is already injected by the auth middleware
+    if (req.user && req.user.userId) {
+      return req.user.userId;
+    }
+
+    // Else: use Authorization Bearer token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return null;
+
+    const token = authHeader.split(" ")[1];
+    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+    return decoded.userId || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+router.get("/me", authenticate, async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     const user = await prisma.user.findUnique({
       where: {
-        id: req.user?.userId},
-        select: {
-          id: true,
-          email: true,
-          name: true,
-        },
+        id: userId,
       },
-  );
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
+    });
 
-  if (!user) {
-   return res.status(404).json({ error: "User not found" });
-   
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch user" });
   }
-  res.json(user);
-}
-  catch (error) {
-    res.status(500).json({error: "Failed to fetch user" });
-}
 });
-  
 
-router.post("/", authenticate , async (req, res) => {
+router.post("/", authenticate, async (req, res) => {
   try {
-    const { title, content, userId } = req.body;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { title, content } = req.body;
 
     const resume = await prisma.resume.create({
       data: {
         title,
         content,
-        userId: req.user!.userId, // Use authenticated user's ID
+        userId: userId,
       },
     });
 
     res.status(201).json(resume);
   } catch (error) {
-  
     res.status(500).json({ error: "Failed to create resume" });
   }
 });
-
-router.get("/", authenticate , async (_req, res) => {
+router.get("/", authenticate, async (req, res) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const resumes = await prisma.resume.findMany({
-      include: {
-        user: true,
-      },
+      where: { userId },
     });
-    res.json(resumes);
+
+    res.json({ resumes });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch resumes" });
   }
 });
 
-/**
- * @route   PUT /api/resumes/:id
- * @desc    Update a resume by ID
- */
-
-router.put("/:id",authenticate, async (req, res) => {
+// ✅ PUT /api/resumes/:id – Update a resume
+router.put("/:id", authenticate, async (req, res) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const resumeId = Number(req.params.id);
     const { title, content } = req.body;
 
-    const Updated = await prisma.resume.update({
+    const resume = await prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
+
+    if (!resume || resume.userId !== userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const updated = await prisma.resume.update({
       where: { id: resumeId },
       data: { title, content },
     });
 
-    res.json(Updated);
+    res.json(updated);
   } catch (error) {
     res.status(500).json({ error: "Failed to update resume" });
   }
 });
 
-/**
- * @route   DELETE /api/resumes/:id
- * @desc    Delete a resume by ID
- */
-
-router.delete("/:id", authenticate , async (req, res) => {
+// ✅ DELETE /api/resumes/:id – Delete a resume
+router.delete("/:id", authenticate, async (req, res) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const resumeId = Number(req.params.id);
+
+    const resume = await prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
+
+    if (!resume || resume.userId !== userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     await prisma.resume.delete({
       where: { id: resumeId },
@@ -101,36 +141,4 @@ router.delete("/:id", authenticate , async (req, res) => {
   }
 });
 
-// router.post("/create-test-user", async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     if (!email || !password) {
-//       return res.status(400).json({ error: "Email and password are required" });
-//     }
-
-//     const existing = await prisma.user.findUnique({
-//       where: { email },
-//     });
-
-//     if (existing) {
-//       return res
-//         .status(409)
-//         .json({
-//           error: `User with this email address ${email} already exists`,
-//         });
-//     }
-
-//     const user = await prisma.user.create({
-//       data: {
-//         email,
-//         password,
-//       },
-//     });
-
-//     res.status(201).json({ message: "Test user created successfully", user });
-//   } catch (error) {
-//     res.status(500).json({ error: "Failed to create test user" });
-//   }
-// });
 export default router;
