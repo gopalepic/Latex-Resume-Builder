@@ -62,7 +62,15 @@ export default function DashboardPage() {
       {error && <p className="text-red-600">{error}</p>}
 
       {resumes.length === 0 ? (
-        <p className="text-gray-500">No resumes found. Try creating one!</p>
+        <div className="text-center mt-8">
+    <p className="text-gray-500 mb-4">No resumes found. Try creating one!</p>
+    <button
+      onClick={() => router.push("/resume/choose")}
+      className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md shadow transition"
+    >
+      ➕ Create New Resume
+    </button>
+  </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           {resumes.map((resume) => (
@@ -87,7 +95,7 @@ export default function DashboardPage() {
                   onClick={async () => {
                     try {
                       const token = localStorage.getItem("token");
-                      await axios.delete(`http://localhost:4000/api/resume/${resume.id}`, {
+                      await axios.delete(`http://localhost:4000/api/resumes/${resume.id}`, {
                         headers: {
                           Authorization: `Bearer ${token}`,
                         },
